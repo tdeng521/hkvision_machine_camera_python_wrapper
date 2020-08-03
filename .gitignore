@@ -1,0 +1,8 @@
+.vs
+x64\Debug\
+x64\Release\*.exp
+x64\Release\*.ilk
+x64\Release\*.lib
+x64\Release\*.pdb
+TestCamera\x64
+ImageCapture\x64

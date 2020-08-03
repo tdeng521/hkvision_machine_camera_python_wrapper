@@ -1,0 +1,2 @@
+# hkvision_machine_camera_python_wrapper
+海康工业相机采集图像，封装简易的python接口便于项目使用。

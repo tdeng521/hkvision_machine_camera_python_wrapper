@@ -6,6 +6,7 @@
 #include <thread>
 #include <conio.h>
 #include<string>
+#include<map>
 
 using namespace std;
 
@@ -48,7 +49,7 @@ public:
 	Camera() {};
 	~Camera() {};
 
-	int initCamera() {
+	int initCamera(const char* cam) {
 		// ch:枚举设备 | en:Enum device
 		MV_CC_DEVICE_INFO_LIST stDeviceList;
 		memset(&stDeviceList, 0, sizeof(MV_CC_DEVICE_INFO_LIST));
@@ -58,7 +59,7 @@ public:
 			cout << "Enum Devices fail! nRet: " << nRet << endl;
 			return -1;
 		}
-
+		MV_CC_DEVICE_INFO* pTargetDeviceInfo = nullptr;
 		if (stDeviceList.nDeviceNum > 0)
 		{
 			for (unsigned int i = 0; i < stDeviceList.nDeviceNum; i++)
@@ -70,6 +71,17 @@ public:
 					return -2;
 				}
 				PrintDeviceInfo(pDeviceInfo);
+				int nIp1 = ((pDeviceInfo->SpecialInfo.stGigEInfo.nCurrentIp & 0xff000000) >> 24);
+				int nIp2 = ((pDeviceInfo->SpecialInfo.stGigEInfo.nCurrentIp & 0x00ff0000) >> 16);
+				int nIp3 = ((pDeviceInfo->SpecialInfo.stGigEInfo.nCurrentIp & 0x0000ff00) >> 8);
+				int nIp4 = (pDeviceInfo->SpecialInfo.stGigEInfo.nCurrentIp & 0x000000ff);
+				string camip = std::to_string(nIp1) + "." + std::to_string(nIp2) + "." + std::to_string(nIp3) + "." + std::to_string(nIp4);
+				if (string(cam).compare(camip) == 0) {
+					cout << "input ip:" << camip << endl;
+					m_handles[camip] = nullptr;
+					pTargetDeviceInfo = pDeviceInfo;
+					break;
+				}
 			}
 		}
 		else
@@ -80,7 +92,7 @@ public:
 
 		// ch:选择设备并创建句柄 | en:Select device and create handle
 		int nIndex = 0;
-		nRet = MV_CC_CreateHandle(&m_handle, stDeviceList.pDeviceInfo[nIndex]);
+		nRet = MV_CC_CreateHandle(&m_handles[string(cam)], pTargetDeviceInfo);
 		if (MV_OK != nRet)
 		{
 			printf("Create Handle fail! nRet [0x%x]\n", nRet);
@@ -88,7 +100,7 @@ public:
 		}
 
 		// ch:打开设备 | en:Open device
-		nRet = MV_CC_OpenDevice(m_handle);
+		nRet = MV_CC_OpenDevice(m_handles[string(cam)]);
 		if (MV_OK != nRet)
 		{
 			printf("Open Device fail! nRet [0x%x]\n", nRet);
@@ -98,10 +110,10 @@ public:
 		// ch:探测网络最佳包大小(只对GigE相机有效) | en:Detection network optimal package size(It only works for the GigE camera)
 		if (stDeviceList.pDeviceInfo[nIndex]->nTLayerType == MV_GIGE_DEVICE)
 		{
-			int nPacketSize = MV_CC_GetOptimalPacketSize(m_handle);
+			int nPacketSize = MV_CC_GetOptimalPacketSize(m_handles[string(cam)]);
 			if (nPacketSize > 0)
 			{
-				nRet = MV_CC_SetIntValue(m_handle, "GevSCPSPacketSize", nPacketSize);
+				nRet = MV_CC_SetIntValue(m_handles[string(cam)], "GevSCPSPacketSize", nPacketSize);
 				if (nRet != MV_OK)
 				{
 					printf("Warning: Set Packet Size fail nRet [0x%x]!", nRet);
@@ -114,7 +126,7 @@ public:
 		}
 
 		// ch:设置触发模式为off | en:Set trigger mode as off
-		nRet = MV_CC_SetEnumValue(m_handle, "TriggerMode", 0);
+		nRet = MV_CC_SetEnumValue(m_handles[string(cam)], "TriggerMode", 0);
 		if (MV_OK != nRet)
 		{
 			printf("Set Trigger Mode fail! nRet [0x%x]\n", nRet);
@@ -124,7 +136,7 @@ public:
 		// ch:获取数据包大小 | en:Get payload size
 		MVCC_INTVALUE stParam;
 		memset(&stParam, 0, sizeof(MVCC_INTVALUE));
-		nRet = MV_CC_GetIntValue(m_handle, "PayloadSize", &stParam);
+		nRet = MV_CC_GetIntValue(m_handles[string(cam)], "PayloadSize", &stParam);
 		if (MV_OK != nRet)
 		{
 			printf("Get PayloadSize fail! nRet [0x%x]\n", nRet);
@@ -133,7 +145,7 @@ public:
 		m_nPayloadSize = stParam.nCurValue;
 
 		// ch:开始取流 | en:Start grab image
-		nRet = MV_CC_StartGrabbing(m_handle);
+		nRet = MV_CC_StartGrabbing(m_handles[string(cam)]);
 		if (MV_OK != nRet)
 		{
 			return 0;
@@ -144,7 +156,7 @@ public:
 		return 1;
 	};
 
-	unsigned int __stdcall WorkThread(const char* imagepath)
+	unsigned int __stdcall WorkThread(const char* cam,const char* imagepath)
 	{
 		cout << "do capture thread:" << std::string(imagepath) << endl;
 		int nRet = MV_OK;
@@ -158,7 +170,7 @@ public:
 		}
 		unsigned int nDataSize = m_nPayloadSize;
 
-		nRet = MV_CC_GetOneFrameTimeout(m_handle, pFrameBuf, nDataSize, &stImageInfo, 1000);
+		nRet = MV_CC_GetOneFrameTimeout(m_handles[string(cam)], pFrameBuf, nDataSize, &stImageInfo, 1000);
 		if (nRet == MV_OK)
 		{
 			printf("Get One Frame: Width[%d], Height[%d], nFrameNum[%d]\n",
@@ -184,7 +196,7 @@ public:
 			stParam.pImageBuffer = pImage;                   //输出数据缓冲区，存放转换之后的图片数据  
 	
 
-			nRet = MV_CC_SaveImageEx2(m_handle, &stParam);
+			nRet = MV_CC_SaveImageEx2(m_handles[string(cam)], &stParam);
 			if (MV_OK != nRet)
 			{
 				return 0;
@@ -210,13 +222,18 @@ public:
 		return 0;
 	}
 
-	int captureImage(unsigned char* pdata, int height, int width, int nchannels) {
+	int captureImage(const char* cam, unsigned char* pdata, int height, int width, int nchannels) {
+		if (m_handles.find(string(cam)) == m_handles.end())
+		{
+			cout << "cannot find the handle of cam " << string(cam) << endl;
+			return -1;
+		}
 		MV_FRAME_OUT_INFO_EX stInfo;
 		memset(&stInfo, 0, sizeof(MV_FRAME_OUT_INFO_EX));
 		int nBufSize = height * width*nchannels;
 		unsigned char*  pFrameBuf = NULL;
 		pFrameBuf = (unsigned char*)malloc(nBufSize);
-		int nRet = MV_CC_GetImageForBGR(m_handle, pFrameBuf, nBufSize, &stInfo, 1000);
+		int nRet = MV_CC_GetImageForBGR(m_handles[cam], pFrameBuf, nBufSize, &stInfo, 1000);
 		if (nRet != 0)
 		{
 			cout << "error:GetImageForRGB: "   << nRet << endl;
@@ -239,33 +256,44 @@ public:
 		return 1;
 	}
 
-	int captureImageToFile(const char* imagePath) {
+	int captureImageToFile(const char* cam, const char* imagePath) {
 		// ch:开始取流 | en:Start grab image
-		int nRet = MV_CC_StartGrabbing(m_handle);
-		if (MV_OK != nRet)
+		//int nRet = MV_CC_StartGrabbing(m_handle);
+		//if (MV_OK != nRet)
+		//{
+		//	printf("Start Grabbing fail! nRet [0x%x]\n", nRet);
+		//	return 0;
+		//	
+		//}
+		if (m_handles.find(string(cam)) == m_handles.end())
 		{
-			return 0;
-			printf("Start Grabbing fail! nRet [0x%x]\n", nRet);
+			cout << "cannot find the handle of cam " << string(cam) << endl;
+			return -1;
 		}
 
 		unsigned int nThreadID = 0;
-		std::thread grabThread = std::thread(&Camera::WorkThread, this, imagePath);
+		std::thread grabThread = std::thread(&Camera::WorkThread, this, cam,imagePath);
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
 		// ch:停止取流 | en:Stop grab image
-		nRet = MV_CC_StopGrabbing(m_handle);
-		if (MV_OK != nRet)
-		{
-			printf("Stop Grabbing fail! nRet [0x%x]\n", nRet);
-			return -2;
-		}
+		//nRet = MV_CC_StopGrabbing(m_handle);
+		//if (MV_OK != nRet)
+		//{
+		//	printf("Stop Grabbing fail! nRet [0x%x]\n", nRet);
+		//	return -2;
+		//}
 
 		return 1;
 	};
 
-	int closeCamera() {
+	int closeCamera(const char* cam) {
+		if (m_handles.find(string(cam)) == m_handles.end())
+		{
+			cout << "cannot find the handle of cam " << string(cam) << endl;
+			return -1;
+		}
 		// ch:停止取流 | en:Stop grab image
-		int nRet = MV_CC_StopGrabbing(m_handle);
+		int nRet = MV_CC_StopGrabbing(m_handles[string(cam)]);
 		if (MV_OK != nRet)
 		{
 			printf("Stop Grabbing fail! nRet [0x%x]\n", nRet);
@@ -273,7 +301,7 @@ public:
 		}
 
 		// ch:关闭设备 | Close device
-		nRet = MV_CC_CloseDevice(m_handle);
+		nRet = MV_CC_CloseDevice(m_handles[string(cam)]);
 		if (MV_OK != nRet)
 		{
 			printf("ClosDevice fail! nRet [0x%x]\n", nRet);
@@ -281,7 +309,7 @@ public:
 		}
 
 		// ch:销毁句柄 | Destroy handle
-		nRet = MV_CC_DestroyHandle(m_handle);
+		nRet = MV_CC_DestroyHandle(m_handles[string(cam)]);
 		if (MV_OK != nRet)
 		{
 			printf("Destroy Handle fail! nRet [0x%x]\n", nRet);
@@ -289,27 +317,27 @@ public:
 		}
 		return 1;
 	}
-
-	void* m_handle;
+	map<string, void*> m_handles;
 	int m_nPayloadSize;
 };
 
 Camera* g_cam = nullptr;
 
 
-extern "C"  IMAGECAPTURE_API int initCamera() {
-	g_cam = new Camera();
+extern "C"  IMAGECAPTURE_API int initCamera(const char* cam) {
+
 	if (g_cam) {
-		return g_cam->initCamera();
+		return g_cam->initCamera(cam);
 	}
 	else {
-		return 0;
+		g_cam = new Camera();
+		return g_cam->initCamera(cam);
 	}
 }
 
-extern "C"  IMAGECAPTURE_API int captureImageToFile(const char* imagePath) {
+extern "C"  IMAGECAPTURE_API int captureImageToFile(const char* cam,const char* imagePath) {
 	if (g_cam) {
-		return g_cam->captureImageToFile(imagePath);
+		return g_cam->captureImageToFile(cam,imagePath);
 	}
 	else {
 		return 0;
@@ -317,19 +345,19 @@ extern "C"  IMAGECAPTURE_API int captureImageToFile(const char* imagePath) {
 	
 }
 
-extern "C"  IMAGECAPTURE_API int captureImage(unsigned char* pdata, int height, int width, int nchannels) {
+extern "C"  IMAGECAPTURE_API int captureImage(const char* cam, unsigned char* pdata, int height, int width, int nchannels) {
 	if (g_cam) {
-		return g_cam->captureImage(pdata,height,width,nchannels);
+		return g_cam->captureImage(cam,pdata,height,width,nchannels);
 	}
 	else {
 		return 0;
 	}
 }
 
-extern "C"  IMAGECAPTURE_API int closeCamera() {
+extern "C"  IMAGECAPTURE_API int closeCamera(const char* cam) {
 	if (g_cam) {
 		cout << "close camera" << endl;
-		g_cam->closeCamera();
+		g_cam->closeCamera(cam);
 		delete g_cam;
 	}
 

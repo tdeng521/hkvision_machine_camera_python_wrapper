@@ -7,7 +7,7 @@
 初始化摄像头
 return：1成功， 其他值为错误码
 */
-extern "C"  IMAGECAPTURE_API int initCamera();
+extern "C"  IMAGECAPTURE_API int initCamera(const char* cam);
 
 /*
 采集图像，保存到指定文件
@@ -16,7 +16,7 @@ param:
 return: 
      1成功，其他值为错误码
 */
-extern "C"  IMAGECAPTURE_API int captureImageToFile(const char* imagePath);
+extern "C"  IMAGECAPTURE_API int captureImageToFile(const char* cam,const char* imagePath);
 
 /*
 采集图像，将图像拷贝到指定内存
@@ -29,13 +29,13 @@ param:
 return:
 	 1成功，其他值为错误码
 */
-extern "C"  IMAGECAPTURE_API int captureImage(unsigned char* pdata,int height,int width,int nchannels);
+extern "C"  IMAGECAPTURE_API int captureImage(const char* cam,unsigned char* pdata,int height,int width,int nchannels);
 
 /*
 关闭摄像头
 return:1成功，其他值为错误码
 */
-extern "C"  IMAGECAPTURE_API int closeCamera();
+extern "C"  IMAGECAPTURE_API int closeCamera(const char* cam);
 
 
 #endif // !IMAGE_CAPTURE_H_
